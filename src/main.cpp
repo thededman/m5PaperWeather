@@ -11,9 +11,9 @@
 
 namespace
 {
-constexpr char WIFI_SSID[] = "Dempsters";
-constexpr char WIFI_PASSWORD[] = "BatteryHorseStapler";
-constexpr char OPENWEATHERMAP_API_KEY[] = "370b924170a45bfbfac01d0e7b266d4b";
+constexpr char WIFI_SSID[] = "SSID";
+constexpr char WIFI_PASSWORD[] = "WIFIPASSWORD";
+constexpr char OPENWEATHERMAP_API_KEY[] = "API_KEY";
 constexpr float OPENWEATHERMAP_LATITUDE = 41.6000F;
 constexpr float OPENWEATHERMAP_LONGITUDE = -72.9000F;
 constexpr char OPENWEATHERMAP_UNITS[] = "imperial";
