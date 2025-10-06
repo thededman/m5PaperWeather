@@ -3,6 +3,7 @@
 #include <WiFiClientSecure.h>
 #include <HTTPClient.h>
 #include <ArduinoJson.h>
+#include <algorithm>
 #include <cmath>
 #include <ctime>
 #include <cctype>
@@ -12,10 +13,10 @@
 namespace
 {
 constexpr char WIFI_SSID[] = "SSID";
-constexpr char WIFI_PASSWORD[] = "WIFIPASSWORD";
-constexpr char OPENWEATHERMAP_API_KEY[] = "API_KEY";
-constexpr float OPENWEATHERMAP_LATITUDE = 41.6000F;
-constexpr float OPENWEATHERMAP_LONGITUDE = -72.9000F;
+constexpr char WIFI_PASSWORD[] = "WIFI_PASSWORD";
+constexpr char OPENWEATHERMAP_API_KEY[] = "AKI_KEY";
+constexpr float OPENWEATHERMAP_LATITUDE = LATITUDE-NUMBERF;  //F is required at end of numbers
+constexpr float OPENWEATHERMAP_LONGITUDE = LONGITUDE-NUMBERF; //F is required at end of numbers
 constexpr char OPENWEATHERMAP_UNITS[] = "imperial";
 constexpr char OPENWEATHERMAP_LANGUAGE[] = "en";
 constexpr uint32_t WEATHER_UPDATE_INTERVAL = 30UL * 60UL * 1000UL; // 30 minutes
@@ -24,7 +25,6 @@ constexpr uint16_t CANVAS_HEIGHT = 540;
 constexpr uint8_t DISPLAY_ROTATION = 0;
 constexpr uint8_t COLOR_WHITE = 0;
 constexpr uint8_t COLOR_BLACK = 15;
-
 
 struct DailyForecast
 {
@@ -344,6 +344,63 @@ void renderStatusMessage(const String &message)
     canvas.setTextDatum(TL_DATUM);
 }
 
+int calculateDegreeRadius() noexcept
+{
+    const int textHeight = canvas.fontHeight();
+    return std::max(2, textHeight / 10);
+}
+
+int calculateDegreeCenterY(int startY, int radius) noexcept
+{
+    return startY + radius + std::max(0, canvas.fontHeight() / 12);
+}
+
+void drawDegreesForText(const String &text, int16_t startX, int16_t startY)
+{
+    const int radius = calculateDegreeRadius();
+    const int centerY = calculateDegreeCenterY(startY, radius);
+    int searchPos = 0;
+    while (true)
+    {
+        const int fIndex = text.indexOf('F', searchPos);
+        if (fIndex == -1)
+        {
+            break;
+        }
+        if (fIndex == 0 || text.charAt(fIndex - 1) != ' ')
+        {
+            searchPos = fIndex + 1;
+            continue;
+        }
+
+        const String prefix = text.substring(0, fIndex - 1);
+        const int prefixWidth = canvas.textWidth(prefix);
+        const int spaceWidth = canvas.textWidth(" ");
+        const int fStartX = startX + prefixWidth + spaceWidth;
+        const int availableSpace = std::max(1, spaceWidth - 1);
+        const int offset = std::min(radius + 1, availableSpace);
+        const int centerX = fStartX - offset;
+
+        if (radius <= 2)
+        {
+            canvas.fillCircle(centerX, centerY, radius, COLOR_BLACK);
+        }
+        else
+        {
+            canvas.fillCircle(centerX, centerY, radius, COLOR_BLACK);
+            canvas.fillCircle(centerX, centerY, radius - 1, COLOR_WHITE);
+        }
+
+        searchPos = fIndex + 1;
+    }
+}
+
+void drawStringWithDegrees(const String &text, int16_t startX, int16_t startY)
+{
+    canvas.drawString(text, startX, startY);
+    drawDegreesForText(text, startX, startY);
+}
+
 void drawForecastCards()
 {
     constexpr int baseY = 360;
@@ -351,7 +408,6 @@ void drawForecastCards()
     constexpr int cardHeight = 150;
     constexpr int spacing = 20;
     const int startX = 30;
-
     for (int i = 0; i < 3; ++i)
     {
         const int x = startX + i * (cardWidth + spacing);
@@ -370,13 +426,13 @@ void drawForecastCards()
         String tempText;
         if (std::isnan(forecast.maxTemperature) || std::isnan(forecast.minTemperature))
         {
-            tempText = "--°F / --°F";
+            tempText = "-- F / -- F";
         }
         else
         {
-            tempText = String(forecast.maxTemperature, 1) + "°F / " + String(forecast.minTemperature, 1) + "°F";
+            tempText = String(forecast.maxTemperature, 1) + " F / " + String(forecast.minTemperature, 1) + " F";
         }
-        canvas.drawString(tempText, x + 20, baseY + 56);
+        drawStringWithDegrees(tempText, x + 20, baseY + 56);
 
         canvas.setTextSize(2);
         const String summary = forecast.summary.length() > 0 ? capitalizeWords(forecast.summary) : String("--");
@@ -448,11 +504,11 @@ void renderDisplay(float indoorTemp, float indoorHumidity, bool indoorValid)
     canvas.setTextSize(8);
     if (std::isnan(latestWeather.outdoorTemperature))
     {
-        canvas.drawString("--.-°F", 30, 190);
+        drawStringWithDegrees(String("--.- F"), 30, 190);
     }
     else
     {
-        canvas.drawString(String(latestWeather.outdoorTemperature, 1) + "°F", 30, 190);
+        drawStringWithDegrees(String(latestWeather.outdoorTemperature, 1) + " F", 30, 190);
     }
 
     canvas.setTextSize(3);
@@ -460,19 +516,21 @@ void renderDisplay(float indoorTemp, float indoorHumidity, bool indoorValid)
     canvas.drawString(description, 30, 260);
 
     canvas.setTextSize(3);
-    const int indoorTextX = CANVAS_WIDTH - 30;
     const int indoorTextY = 90;
-    canvas.setTextDatum(TR_DATUM);
     if (indoorValid)
     {
-        String indoorLine = "Indoor: " + String(indoorTemp, 1) + "°F  " + String(indoorHumidity, 1) + "% RH";
-        canvas.drawString(indoorLine, indoorTextX, indoorTextY);
+        const String indoorLine = "Indoor: " + String(indoorTemp, 1) + " F  " + String(indoorHumidity, 1) + "% RH";
+        const int indoorWidth = canvas.textWidth(indoorLine);
+        const int indoorDrawX = CANVAS_WIDTH - 30 - indoorWidth;
+        drawStringWithDegrees(indoorLine, indoorDrawX, indoorTextY);
     }
     else
     {
-        canvas.drawString("Indoor sensor not available", indoorTextX, indoorTextY);
+        const String indoorMessage = "Indoor sensor not available";
+        const int indoorWidth = canvas.textWidth(indoorMessage);
+        const int indoorDrawX = CANVAS_WIDTH - 30 - indoorWidth;
+        canvas.drawString(indoorMessage, indoorDrawX, indoorTextY);
     }
-    canvas.setTextDatum(TL_DATUM);
 
     canvas.setTextSize(3);
     canvas.drawString("3-Day Forecast", 30, 330);
