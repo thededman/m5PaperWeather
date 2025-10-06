@@ -19,7 +19,6 @@ constexpr float OPENWEATHERMAP_LONGITUDE = -72.9000F;
 constexpr char OPENWEATHERMAP_UNITS[] = "imperial";
 constexpr char OPENWEATHERMAP_LANGUAGE[] = "en";
 constexpr uint32_t WEATHER_UPDATE_INTERVAL = 30UL * 60UL * 1000UL; // 30 minutes
-constexpr uint32_t WIFI_RETRY_DELAY = 5000UL;
 constexpr uint16_t CANVAS_WIDTH = 960;
 constexpr uint16_t CANVAS_HEIGHT = 540;
 constexpr uint8_t DISPLAY_ROTATION = 0;
@@ -70,6 +69,7 @@ bool connectToWifi()
 
     Serial.println("[WiFi] Connecting to configured network...");
     WiFi.mode(WIFI_STA);
+    WiFi.setSleep(false);
     WiFi.begin(WIFI_SSID, WIFI_PASSWORD);
 
     const uint32_t start = millis();
@@ -86,6 +86,19 @@ bool connectToWifi()
 
     Serial.printf("[WiFi] Connected to %s\n", WiFi.SSID().c_str());
     return true;
+}
+
+void powerDownWifi()
+{
+    if (WiFi.getMode() == WIFI_MODE_NULL)
+    {
+        return;
+    }
+
+    Serial.println("[WiFi] Disabling radio to conserve power.");
+    WiFi.disconnect(true);
+    WiFi.mode(WIFI_MODE_NULL);
+    WiFi.setSleep(true);
 }
 
 String buildApiUrl()
@@ -685,10 +698,12 @@ void updateWeatherAndDisplay()
 {
     Serial.println("[Update] Starting weather refresh cycle...");
 
-    if (!connectToWifi())
+    const bool wifiConnected = connectToWifi();
+    if (!wifiConnected)
     {
         Serial.println("[Update] WiFi connection failed.");
         renderStatusMessage("WiFi connection failed");
+        powerDownWifi();
         return;
     }
 
@@ -698,6 +713,7 @@ void updateWeatherAndDisplay()
         Serial.println("[Update] Weather download or parse failed.");
         const String message = lastErrorMessage.length() > 0 ? lastErrorMessage : String("Weather update failed");
         renderStatusMessage(message);
+        powerDownWifi();
         return;
     }
 
@@ -709,6 +725,7 @@ void updateWeatherAndDisplay()
     renderDisplay(indoorTemp, indoorHumidity, indoorValid);
     lastWeatherUpdate = millis();
     Serial.println("[Update] Update cycle complete.");
+    powerDownWifi();
 }
 } // namespace
 
@@ -748,16 +765,6 @@ void loop()
     if ((millis() - lastWeatherUpdate) > WEATHER_UPDATE_INTERVAL)
     {
         updateWeatherAndDisplay();
-    }
-
-    if (WiFi.status() != WL_CONNECTED)
-    {
-        static uint32_t lastAttempt = 0;
-        if (millis() - lastAttempt > WIFI_RETRY_DELAY)
-        {
-            connectToWifi();
-            lastAttempt = millis();
-        }
     }
 
     M5.update();
