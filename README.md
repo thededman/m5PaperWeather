@@ -11,6 +11,11 @@ An M5Paper landscape dashboard that shows indoor temperature and humidity alongs
 - Battery gauge indicating the current charge level.
 - Automatic refresh every 30 minutes with quick status feedback on Wi-Fi or API failures.
 
+## Work in progress
+   - Need to update the graphics and try new fonts.
+   - Looking to have the 3 day forecast change when tap on the screen.
+   - Possible using SD card for background images for the boaders and icons.
+
 ## Getting started
 
 1. Install [PlatformIO](https://platformio.org/) (the project uses the Arduino framework for the ESP32-based M5Paper).
