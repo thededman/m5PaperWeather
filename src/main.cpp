@@ -14,8 +14,8 @@ namespace
 constexpr char WIFI_SSID[] = "SSID";
 constexpr char WIFI_PASSWORD[] = "WIFIPASSWORD";
 constexpr char OPENWEATHERMAP_API_KEY[] = "API_KEY";
-constexpr float OPENWEATHERMAP_LATITUDE = 41.6000F;
-constexpr float OPENWEATHERMAP_LONGITUDE = -72.9000F;
+constexpr float OPENWEATHERMAP_LATITUDE = LATITUDE-NUMBERF;  //F is required at end of numbers
+constexpr float OPENWEATHERMAP_LONGITUDE = LONGITUDE-NUMBERF; //F is required at end of numbers
 constexpr char OPENWEATHERMAP_UNITS[] = "imperial";
 constexpr char OPENWEATHERMAP_LANGUAGE[] = "en";
 constexpr uint32_t WEATHER_UPDATE_INTERVAL = 30UL * 60UL * 1000UL; // 30 minutes
