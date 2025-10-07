@@ -12,11 +12,11 @@
 
 namespace
 {
-constexpr char WIFI_SSID[] = "Dempsters";
-constexpr char WIFI_PASSWORD[] = "BatterHroseStapler";
-constexpr char OPENWEATHERMAP_API_KEY[] = "370b924170a45bfbfac01d0e7b266d4b";
-constexpr float OPENWEATHERMAP_LATITUDE = 41.6000F; // TODO: replace with your latitude
-constexpr float OPENWEATHERMAP_LONGITUDE = -72.9000F; // TODO: replace with your longitude
+constexpr char WIFI_SSID[] = "SSID";
+constexpr char WIFI_PASSWORD[] = "WIFI_PASSWORD_HERE";
+constexpr char OPENWEATHERMAP_API_KEY[] = "API_KEY_HERE";
+constexpr float OPENWEATHERMAP_LATITUDE = 0.0F; // TODO: replace with your latitude
+constexpr float OPENWEATHERMAP_LONGITUDE = 0.0F; // TODO: replace with your longitude
 constexpr char OPENWEATHERMAP_UNITS[] = "imperial";
 constexpr char OPENWEATHERMAP_LANGUAGE[] = "en";
 constexpr uint32_t WEATHER_UPDATE_INTERVAL = 30UL * 60UL * 1000UL; // 30 minutes
@@ -429,7 +429,7 @@ void drawForecastCards()
         }
         else
         {
-            tempText = String(forecast.maxTemperature, 1) + " F / " + String(forecast.minTemperature, 1) + " F";
+            tempText = String(forecast.maxTemperature, 1) + "F / " + String(forecast.minTemperature, 1) + " F";
         }
         drawStringWithDegrees(tempText, x + 20, baseY + 56);
 
