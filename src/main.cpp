@@ -12,11 +12,11 @@
 
 namespace
 {
-constexpr char WIFI_SSID[] = "SSID";
-constexpr char WIFI_PASSWORD[] = "WIFIPASSWORD";
-constexpr char OPENWEATHERMAP_API_KEY[] = "API_KEY";
-constexpr float OPENWEATHERMAP_LATITUDE = LATITUDE-NUMBERF;  //F is required at end of numbers
-constexpr float OPENWEATHERMAP_LONGITUDE = LONGITUDE-NUMBERF; //F is required at end of numbers
+constexpr char WIFI_SSID[] = "Dempsters";
+constexpr char WIFI_PASSWORD[] = "BatterHroseStapler";
+constexpr char OPENWEATHERMAP_API_KEY[] = "370b924170a45bfbfac01d0e7b266d4b";
+constexpr float OPENWEATHERMAP_LATITUDE = 41.6000F; // TODO: replace with your latitude
+constexpr float OPENWEATHERMAP_LONGITUDE = -72.9000F; // TODO: replace with your longitude
 constexpr char OPENWEATHERMAP_UNITS[] = "imperial";
 constexpr char OPENWEATHERMAP_LANGUAGE[] = "en";
 constexpr uint32_t WEATHER_UPDATE_INTERVAL = 30UL * 60UL * 1000UL; // 30 minutes
@@ -398,7 +398,6 @@ void drawDegreesForText(const String &text, int16_t startX, int16_t startY)
 void drawStringWithDegrees(const String &text, int16_t startX, int16_t startY)
 {
     canvas.drawString(text, startX, startY);
-    drawDegreesForText(text, startX, startY);
 }
 
 void drawForecastCards()
