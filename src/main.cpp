@@ -9,12 +9,18 @@
 #include <cctype>
 #include <type_traits>
 #include <limits>
+#include <SD.h>
+
+// Forward declarations for functions defined later but used early
+int mapLegacySizeToPx(int legacy);
+void setTextSizeCompat(int size);
+void tryLoadSmoothFont();
 
 namespace
 {
 constexpr char WIFI_SSID[] = "SSID";
-constexpr char WIFI_PASSWORD[] = "WIFI_PASSWORD_HERE";
-constexpr char OPENWEATHERMAP_API_KEY[] = "API_KEY_HERE";
+constexpr char WIFI_PASSWORD[] = "WIFI_PASSWORD";
+constexpr char OPENWEATHERMAP_API_KEY[] = "API_KEY"; // TODO: replace with your OpenWeatherMap API key
 constexpr float OPENWEATHERMAP_LATITUDE = 0.0F; // TODO: replace with your latitude
 constexpr float OPENWEATHERMAP_LONGITUDE = 0.0F; // TODO: replace with your longitude
 constexpr char OPENWEATHERMAP_UNITS[] = "imperial";
@@ -28,6 +34,8 @@ constexpr uint16_t CANVAS_HEIGHT = 540;
 constexpr uint8_t DISPLAY_ROTATION = 0;
 constexpr uint8_t COLOR_WHITE = 0;
 constexpr uint8_t COLOR_BLACK = 15;
+// Optional TrueType/OpenType font on SD for smoother text rendering.
+constexpr char FONT_PATH_REGULAR[] = "/font/Roboto-Regular.ttf"; // place on SD card
 
 struct DailyForecast
 {
@@ -58,6 +66,7 @@ struct DayAggregate
 
 M5EPD_Canvas canvas(&M5.EPD);
 bool canvasReady = false;
+bool fontReady = false;
 WeatherSnapshot latestWeather;
 uint32_t lastWeatherUpdate = 0;
 uint32_t lastIndoorUpdate = 0;
@@ -326,7 +335,7 @@ void drawBatteryIndicator(float level)
     }
 
     canvas.setTextDatum(MC_DATUM);
-    canvas.setTextSize(2);
+    setTextSizeCompat(2);
     canvas.drawString(String(static_cast<int>(level + 0.5F)) + "%", x + indicatorWidth / 2, y + indicatorHeight / 2);
     canvas.setTextDatum(TL_DATUM);
 }
@@ -342,7 +351,7 @@ void renderStatusMessage(const String &message)
     canvas.fillCanvas(COLOR_WHITE);
     canvas.setTextColor(COLOR_BLACK);
     canvas.setTextDatum(MC_DATUM);
-    canvas.setTextSize(3);
+    setTextSizeCompat(3);
     canvas.drawString(message, CANVAS_WIDTH / 2, CANVAS_HEIGHT / 2);
     canvas.pushCanvas(0, 0, UPDATE_MODE_GC16);
     canvas.setTextDatum(TL_DATUM);
@@ -422,10 +431,10 @@ void drawForecastCards()
             continue;
         }
 
-        canvas.setTextSize(3);
+        setTextSizeCompat(3);
         canvas.drawString(formatDayOfWeek(forecast.timestamp), x + 20, baseY + 16);
 
-        canvas.setTextSize(3);
+        setTextSizeCompat(3);
         String tempText;
         if (std::isnan(forecast.maxTemperature) || std::isnan(forecast.minTemperature))
         {
@@ -437,7 +446,7 @@ void drawForecastCards()
         }
         drawStringWithDegrees(tempText, x + 20, baseY + 56);
 
-        canvas.setTextSize(2);
+        setTextSizeCompat(2);
         const String summary = forecast.summary.length() > 0 ? capitalizeWords(forecast.summary) : String("--");
         const int summaryX = x + 20;
         int summaryY = baseY + 96;
@@ -494,17 +503,17 @@ void renderDisplay(float indoorTemp, float indoorHumidity, bool indoorValid)
     canvas.setTextColor(COLOR_BLACK);
     canvas.setTextDatum(TL_DATUM);
 
-    canvas.setTextSize(4);
+    setTextSizeCompat(4);
     canvas.drawString("Home Weather Dashboard", 30, 30);
 
-    canvas.setTextSize(2);
+    setTextSizeCompat(2);
     canvas.drawString(String("WiFi: ") + (WiFi.status() == WL_CONNECTED ? WiFi.SSID() : String("Disconnected")), 30, 90);
     const String updatedText = latestWeather.updatedAt != 0 ? formatTimestamp(latestWeather.updatedAt) : String("Pending");
     canvas.drawString(String("Updated: ") + updatedText, 30, 130);
 
     drawBatteryIndicator(readBatteryLevel());
 
-    canvas.setTextSize(8);
+    setTextSizeCompat(8);
     if (std::isnan(latestWeather.outdoorTemperature))
     {
         drawStringWithDegrees(String("--.- F"), 30, 190);
@@ -514,11 +523,11 @@ void renderDisplay(float indoorTemp, float indoorHumidity, bool indoorValid)
         drawStringWithDegrees(String(latestWeather.outdoorTemperature, 1) + " F", 30, 190);
     }
 
-    canvas.setTextSize(3);
+    setTextSizeCompat(3);
     const String description = latestWeather.outdoorDescription.length() > 0 ? capitalizeWords(latestWeather.outdoorDescription) : String("Waiting for data");
     canvas.drawString(description, 30, 260);
 
-    canvas.setTextSize(3);
+    setTextSizeCompat(3);
     const int indoorTextY = 90;
     if (indoorValid)
     {
@@ -535,7 +544,7 @@ void renderDisplay(float indoorTemp, float indoorHumidity, bool indoorValid)
         canvas.drawString(indoorMessage, indoorDrawX, indoorTextY);
     }
 
-    canvas.setTextSize(3);
+    setTextSizeCompat(3);
     canvas.drawString("3-Day Forecast", 30, 330);
 
     drawForecastCards();
@@ -807,6 +816,9 @@ void updateIndoorAndDisplay()
 }
 } // namespace
 
+// Forward declaration so we can call it from setup()
+void tryLoadSmoothFont();
+
 void setup()
 {
     Serial.begin(115200);
@@ -835,6 +847,9 @@ void setup()
         renderStatusMessage("Booting...");
     }
 
+    // Attempt to load a smoother TTF/OTF font from SD card.
+    tryLoadSmoothFont();
+
     updateWeatherAndDisplay();
 }
 
@@ -853,4 +868,62 @@ void loop()
 
     M5.update();
     delay(1000);
+}
+int mapLegacySizeToPx(int legacy)
+{
+    switch (legacy)
+    {
+    case 2: return 26;  // small labels
+    case 3: return 36;  // medium text
+    case 4: return 48;  // headers
+    case 8: return 84;  // large temperature (slightly smaller)
+    default:
+        return legacy * 12; // reasonable fallback scaling
+    }
+}
+
+void setTextSizeCompat(int size)
+{
+    if (fontReady)
+    {
+        canvas.setTextSize(mapLegacySizeToPx(size));
+    }
+    else
+    {
+        canvas.setTextSize(size);
+    }
+}
+
+void tryLoadSmoothFont()
+{
+    if (!canvasReady)
+    {
+        return;
+    }
+
+    // Initialize SD and try to load a TTF/OTF font if present.
+    if (!SD.begin())
+    {
+        Serial.println("[Font] SD card not available; using default bitmap font.");
+        return;
+    }
+
+    Serial.printf("[Font] Looking for font: %s\n", FONT_PATH_REGULAR);
+    if (!SD.exists(FONT_PATH_REGULAR))
+    {
+        Serial.println("[Font] Font file not found on SD; using default font.");
+        return;
+    }
+
+    // M5EPD supports loading TrueType/OpenType fonts from FS.
+    // This renders much smoother than the scaled bitmap font.
+    canvas.loadFont(FONT_PATH_REGULAR, SD);
+    // Pre-create renderers for the sizes we use.
+    // The cache size (256) balances memory and speed for repeated glyphs.
+    canvas.createRender(mapLegacySizeToPx(2), 256);
+    canvas.createRender(mapLegacySizeToPx(3), 256);
+    canvas.createRender(mapLegacySizeToPx(4), 256);
+    canvas.createRender(mapLegacySizeToPx(8), 256);
+    fontReady = true;
+    Serial.println("[Font] Smooth font loaded successfully.");
 }
