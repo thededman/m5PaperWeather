@@ -19,7 +19,10 @@ constexpr float OPENWEATHERMAP_LATITUDE = 0.0F; // TODO: replace with your latit
 constexpr float OPENWEATHERMAP_LONGITUDE = 0.0F; // TODO: replace with your longitude
 constexpr char OPENWEATHERMAP_UNITS[] = "imperial";
 constexpr char OPENWEATHERMAP_LANGUAGE[] = "en";
-constexpr uint32_t WEATHER_UPDATE_INTERVAL = 30UL * 60UL * 1000UL; // 30 minutes
+// Update the weather (network fetch) twice per day to save battery.
+constexpr uint32_t WEATHER_UPDATE_INTERVAL = 12UL * 60UL * 60UL * 1000UL; // 12 hours
+// Update the indoor (local sensor only) reading every 10 minutes.
+constexpr uint32_t INDOOR_UPDATE_INTERVAL = 10UL * 60UL * 1000UL; // 10 minutes
 constexpr uint16_t CANVAS_WIDTH = 960;
 constexpr uint16_t CANVAS_HEIGHT = 540;
 constexpr uint8_t DISPLAY_ROTATION = 0;
@@ -57,6 +60,7 @@ M5EPD_Canvas canvas(&M5.EPD);
 bool canvasReady = false;
 WeatherSnapshot latestWeather;
 uint32_t lastWeatherUpdate = 0;
+uint32_t lastIndoorUpdate = 0;
 String lastErrorMessage;
 
 bool connectToWifi()
@@ -781,8 +785,25 @@ void updateWeatherAndDisplay()
     Serial.println("[Update] Rendering display.");
     renderDisplay(indoorTemp, indoorHumidity, indoorValid);
     lastWeatherUpdate = millis();
+    // Keep indoor timer aligned so we don't immediately trigger an indoor-only refresh.
+    lastIndoorUpdate = lastWeatherUpdate;
     Serial.println("[Update] Update cycle complete.");
     powerDownWifi();
+}
+
+// Read only the indoor sensor and refresh the display without using WiFi.
+void updateIndoorAndDisplay()
+{
+    Serial.println("[Indoor] Starting indoor-only refresh cycle...");
+
+    float indoorTemp = NAN;
+    float indoorHumidity = NAN;
+    const bool indoorValid = readIndoorClimate(indoorTemp, indoorHumidity);
+
+    Serial.println("[Indoor] Rendering display with latest weather snapshot.");
+    renderDisplay(indoorTemp, indoorHumidity, indoorValid);
+    lastIndoorUpdate = millis();
+    Serial.println("[Indoor] Indoor-only update complete.");
 }
 } // namespace
 
@@ -819,9 +840,15 @@ void setup()
 
 void loop()
 {
-    if ((millis() - lastWeatherUpdate) > WEATHER_UPDATE_INTERVAL)
+    const uint32_t now = millis();
+
+    if ((now - lastWeatherUpdate) > WEATHER_UPDATE_INTERVAL)
     {
         updateWeatherAndDisplay();
+    }
+    else if ((now - lastIndoorUpdate) > INDOOR_UPDATE_INTERVAL)
+    {
+        updateIndoorAndDisplay();
     }
 
     M5.update();
