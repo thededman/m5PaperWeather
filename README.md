@@ -12,9 +12,8 @@ An M5Paper landscape dashboard that shows indoor temperature and humidity alongs
 - Power-friendly refresh cadence: twice-daily forecast (Wi‑Fi) and 10‑minute indoor-only updates.
 
 ## Work in progress
-   - Need to update the graphics and try new fonts.
-   - Looking to have the 3 day forecast change when tap on the screen.
-   - Possible using SD card for background images for the borders and icons.
+   - Looking to have the 3-day forecast change when tapping on the screen.
+
 
 ## Getting started
 
