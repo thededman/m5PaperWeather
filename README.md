@@ -1,6 +1,6 @@
 # m5PaperWeather
 
-An M5Paper landscape dashboard that shows indoor temperature and humidity alongside a three-day weather forecast pulled from [OpenWeatherMap](https://openweathermap.org/).
+An M5Paper landscape dashboard that shows indoor temperature and humidity alongside a three-day weather forecast pulled from [OpenWeatherMap](https://openweathermap.org/). This is the device used for this build. (https://shop.m5stack.com/products/m5paper-esp32-development-kit-v1-1-960x540-4-7-eink-display-235-ppi) Not sure if it will run on m5PaperS3
 
 ## Features
 
