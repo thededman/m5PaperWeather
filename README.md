@@ -19,7 +19,7 @@ An M5Paper landscape dashboard that shows indoor temperature and humidity alongs
 
 1. Install [PlatformIO](https://platformio.org/) (the project uses the Arduino framework for the ESP32-based M5Paper).
 2. Open this folder in VS Code with the PlatformIO extension or run the PlatformIO CLI.
-3. Edit `src/main.cpp` and replace the placeholder values for:
+3. Edit `src/m5paperWeather.cpp` and replace the placeholder values for:
    - `WIFI_SSID` and `WIFI_PASSWORD`
    - `OPENWEATHERMAP_API_KEY`
    - `OPENWEATHERMAP_LATITUDE` and `OPENWEATHERMAP_LONGITUDE` to match your location
@@ -40,7 +40,7 @@ The device will try to connect to the configured Wi-Fi network, pull the latest 
 
 ## Customisation tips
 
-- Adjust refresh cadence in `src/main.cpp`:
+- Adjust refresh cadence in `src/m5paperWeather.cpp`:
   - `WEATHER_UPDATE_INTERVAL` for forecast fetches (default 12 hours)
   - `INDOOR_UPDATE_INTERVAL` for indoor sensor refreshes (default 10 minutes)
 - Modify the drawing functions to tweak fonts, layout, or add more telemetry.
@@ -56,14 +56,14 @@ Steps
 - On boot, the app will automatically load the font from SD. If the file is missing, it falls back to the built‑in bitmap font.
 
 Change the font or path
-- Edit the path in `src/main.cpp` to match your font: `FONT_PATH_REGULAR`.
+- Edit the path in `src/m5paperWeather.cpp` to match your font: `FONT_PATH_REGULAR`.
 - Example default: `/font/Roboto-Regular.ttf`.
 
 Sizes and tuning
 - The app precreates render sizes for the font and maps legacy sizes to pixels:
   - `2 → 26 px`, `3 → 36 px`, `4 → 48 px`, `8 → 84 px`
-- To slightly change the large current‑temperature font, edit the mapping for `8` in `mapLegacySizeToPx(...)` inside `src/main.cpp`.
-- Alternatively, change the call site used for the big temperature: `src/main.cpp:516` (`setTextSizeCompat(8)`).
+- To slightly change the large current‑temperature font, edit the mapping for `8` in `mapLegacySizeToPx(...)` inside `src/m5paperWeather.cpp`.
+- Alternatively, change the call site used for the big temperature: `src/m5paperWeather.cpp:516` (`setTextSizeCompat(8)`).
 
 Troubleshooting
 - If you see messages like `Freetype: Size X not found` or `Render is not available` in the serial log:
