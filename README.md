@@ -35,8 +35,8 @@ An M5Paper landscape dashboard that shows indoor temperature and humidity alongs
      },
      "openweathermap": {
        "apiKey": "YOUR_API_KEY",
-       "lat": 41.6000,
-       "lon": -72.9000,
+       "lat": 0.0,
+       "lon": 0.0,
        "units": "imperial",
        "lang": "en"
      },
