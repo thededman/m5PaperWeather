@@ -19,9 +19,9 @@ void tryLoadSmoothFont();
 namespace
 {
 // Defaults used if SD config is missing
-constexpr char DEFAULT_WIFI_SSID[] = "SSID_HERE";
-constexpr char DEFAULT_WIFI_PASSWORD[] = "SSID_PASSWORD_HERE";
-constexpr char DEFAULT_OWM_API_KEY[] = "API_CODE";
+constexpr char DEFAULT_WIFI_SSID[] = "SSID";
+constexpr char DEFAULT_WIFI_PASSWORD[] = "SSID_PASSWORD";
+constexpr char DEFAULT_OWM_API_KEY[] = "APK_KEY";
 constexpr float DEFAULT_OWM_LATITUDE = 0.0F;
 constexpr float DEFAULT_OWM_LONGITUDE = 0.0F;
 constexpr char DEFAULT_OWM_UNITS[] = "imperial";
@@ -225,7 +225,7 @@ String owmIconPath(const String &code)
 
 String owmIconUrl(const String &code)
 {
-    return String("https://openweathermap.org/img/wn/") + code + "@2x.png";
+    return String("http://openweathermap.org/img/wn/") + code + "@2x.png";
 }
 
 bool ensureIconCached(const String &code)
@@ -246,11 +246,10 @@ bool ensureIconCached(const String &code)
     }
     Serial.printf("[Icon] Downloading %s -> %s\n", code.c_str(), path.c_str());
 
-    WiFiClientSecure client;
-    client.setInsecure();
     HTTPClient http;
     const String url = owmIconUrl(code);
-    if (!http.begin(client, url))
+    http.setTimeout(7000);
+    if (!http.begin(url))
     {
         Serial.println("[Icon] HTTP begin failed");
         return false;
@@ -942,8 +941,10 @@ bool fetchWeather()
     WiFiClientSecure client;
     client.setInsecure();
 
+    // HTTP client for current + forecast requests
     HTTPClient http;
-
+    http.setTimeout(12000);
+    
     const String currentUrl = String("https://api.openweathermap.org/data/2.5/weather?lat=") +
                               String(CFG_OWM_LATITUDE, 6) + "&lon=" +
                               String(CFG_OWM_LONGITUDE, 6) + "&units=" +
@@ -956,8 +957,21 @@ bool fetchWeather()
         return false;
     }
 
-    const int currentCode = http.GET();
+    int currentCode = http.GET();
     Serial.printf("[Weather] Current HTTP status code: %d\n", currentCode);
+    if (currentCode <= 0)
+    {
+        Serial.printf("[Weather] Current HTTP error: %s (%d)\n", http.errorToString(currentCode).c_str(), currentCode);
+        http.end();
+        http.setTimeout(15000);
+        if (!http.begin(client, currentUrl))
+        {
+            lastErrorMessage = "Weather update failed: HTTP client init (retry)";
+            return false;
+        }
+        currentCode = http.GET();
+        Serial.printf("[Weather] Current HTTP retry status: %d\n", currentCode);
+    }
     String currentPayload;
     if (currentCode == HTTP_CODE_OK)
     {
@@ -992,6 +1006,7 @@ bool fetchWeather()
     latestWeather.currentIconCode = currentDoc["weather"][0]["icon"].as<String>();
     latestWeather.updatedAt = currentDoc["dt"].as<long>() + timezoneOffsetSeconds;
 
+    http.setTimeout(12000);
     const String forecastUrl = String("https://api.openweathermap.org/data/2.5/forecast?lat=") +
                                String(CFG_OWM_LATITUDE, 6) + "&lon=" +
                                String(CFG_OWM_LONGITUDE, 6) + "&units=" +
@@ -1004,8 +1019,21 @@ bool fetchWeather()
         return false;
     }
 
-    const int forecastCode = http.GET();
+    int forecastCode = http.GET();
     Serial.printf("[Weather] Forecast HTTP status code: %d\n", forecastCode);
+    if (forecastCode <= 0)
+    {
+        Serial.printf("[Weather] Forecast HTTP error: %s (%d)\n", http.errorToString(forecastCode).c_str(), forecastCode);
+        http.end();
+        http.setTimeout(15000);
+        if (!http.begin(client, forecastUrl))
+        {
+            lastErrorMessage = "Weather update failed: HTTP client init (forecast retry)";
+            return false;
+        }
+        forecastCode = http.GET();
+        Serial.printf("[Weather] Forecast HTTP retry status: %d\n", forecastCode);
+    }
     String forecastPayload;
     if (forecastCode == HTTP_CODE_OK)
     {
