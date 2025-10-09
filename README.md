@@ -122,8 +122,6 @@ How it works
 - The app maps OpenWeatherMap condition `id` to the above filenames.
 - Icons are loaded from SD on render. If a file is missing, it logs a message and continues.
 - Files can be PNG with transparency; the app uses an alpha threshold to render on E‑Ink.
-
-Auto-download (optional)
 - During weather fetch, the app will also cache OpenWeatherMap's official icon PNGs by `icon` code (e.g., `10d`) into `/icons`.
 - If a matching file like `/icons/10d.png` does not exist, it downloads from `http://openweathermap.org/img/wn/10d@2x.png` and saves it.
 - Detail views prefer these cached icons; if unavailable, they fall back to the custom filenames above if present.
