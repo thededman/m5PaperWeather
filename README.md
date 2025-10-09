@@ -25,11 +25,29 @@ An M5Paper landscape dashboard that shows indoor temperature and humidity alongs
 
 1. Install [PlatformIO](https://platformio.org/) (the project uses the Arduino framework for the ESP32-based M5Paper).
 2. Open this folder in VS Code with the PlatformIO extension or run the PlatformIO CLI.
-3. Edit `src/m5paperWeather.cpp` and replace the placeholder values for:
-   - `WIFI_SSID` and `WIFI_PASSWORD`
-   - `OPENWEATHERMAP_API_KEY`
-   - `OPENWEATHERMAP_LATITUDE` and `OPENWEATHERMAP_LONGITUDE` to match your location
-   - Optionally update `OPENWEATHERMAP_LANGUAGE` or units (`metric` by default)
+3. Create a config file on the microSD card at `/config/weather.json`:
+
+   ```json
+   {
+     "wifi": {
+       "ssid": "YourSSID",
+       "password": "YourPassword"
+     },
+     "openweathermap": {
+       "apiKey": "YOUR_API_KEY",
+       "lat": 41.6000,
+       "lon": -72.9000,
+       "units": "imperial",
+       "lang": "en"
+     },
+     "update": {
+       "weatherHours": 12,
+       "indoorMinutes": 10
+     }
+   }
+   ```
+
+   If the file is missing, the app falls back to built‑in defaults.
 4. Build and upload the firmware:
 
    ```bash
@@ -82,6 +100,37 @@ Troubleshooting
 - Touch behavior: Adjust tap debounce and cycling in `loop()` (`uiMode`, `lastTouchTime`).
 - View refresh: Change the one‑shot refresh mode in `pushCanvasSmart()` (e.g., `UPDATE_MODE_GL16`, `GLD16`, `DU`).
 - Detail layout: Tweak fonts/positions in `renderForecastDetail(...)`.
+
+## Weather icons (SD card)
+
+You can display grayscale weather icons on the detailed day screens.
+
+Steps
+- Create an `icons` folder on the microSD card and copy PNGs (recommended), JPGs or BMPs:
+  - `/icons/clear.png` — clear sky (800)
+  - `/icons/partly_cloudy.png` — few clouds (801)
+  - `/icons/clouds.png` — clouds (802–804)
+  - `/icons/rain.png` — rain (500–531)
+  - `/icons/drizzle.png` — drizzle (300–321)
+  - `/icons/thunder.png` — thunderstorm (200–232)
+  - `/icons/snow.png` — snow (600–622)
+  - `/icons/fog.png` — atmosphere/mist (700–781)
+  - Optional: `/icons/na.png` — fallback icon
+- Recommended size: around 120–160 px square. The app fits icons into a ~150×150 px box on the right.
+
+How it works
+- The app maps OpenWeatherMap condition `id` to the above filenames.
+- Icons are loaded from SD on render. If a file is missing, it logs a message and continues.
+- Files can be PNG with transparency; the app uses an alpha threshold to render on E‑Ink.
+
+Auto-download (optional)
+- During weather fetch, the app will also cache OpenWeatherMap's official icon PNGs by `icon` code (e.g., `10d`) into `/icons`.
+- If a matching file like `/icons/10d.png` does not exist, it downloads from `https://openweathermap.org/img/wn/10d@2x.png` and saves it.
+- Detail views prefer these cached icons; if unavailable, they fall back to the custom filenames above if present.
+
+Change mapping
+- Adjust `iconPathForOwmId(...)` in `src/m5paperWeather.cpp` to point to your filenames.
+- If you prefer embedded icons in flash, we can add PROGMEM bitmaps and a compile‑time switch.
 
 ## API usage
 

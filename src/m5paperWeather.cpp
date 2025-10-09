@@ -18,17 +18,27 @@ void tryLoadSmoothFont();
 
 namespace
 {
-constexpr char WIFI_SSID[] = "SSID_HERE";
-constexpr char WIFI_PASSWORD[] = "SSID_PASSWORD_HERE";
-constexpr char OPENWEATHERMAP_API_KEY[] = "API_CODE"; // TODO: replace with your OpenWeatherMap API key
-constexpr float OPENWEATHERMAP_LATITUDE = 0.0F; // TODO: replace with your latitude
-constexpr float OPENWEATHERMAP_LONGITUDE = 0.0F; // TODO: replace with your longitude
-constexpr char OPENWEATHERMAP_UNITS[] = "imperial";
-constexpr char OPENWEATHERMAP_LANGUAGE[] = "en";
-// Update the weather (network fetch) twice per day to save battery.
-constexpr uint32_t WEATHER_UPDATE_INTERVAL = 12UL * 60UL * 60UL * 1000UL; // 12 hours
-// Update the indoor (local sensor only) reading every 10 minutes.
-constexpr uint32_t INDOOR_UPDATE_INTERVAL = 10UL * 60UL * 1000UL; // 10 minutes
+// Defaults used if SD config is missing
+constexpr char DEFAULT_WIFI_SSID[] = "SSID_HERE";
+constexpr char DEFAULT_WIFI_PASSWORD[] = "SSID_PASSWORD_HERE";
+constexpr char DEFAULT_OWM_API_KEY[] = "API_CODE";
+constexpr float DEFAULT_OWM_LATITUDE = 0.0F;
+constexpr float DEFAULT_OWM_LONGITUDE = 0.0F;
+constexpr char DEFAULT_OWM_UNITS[] = "imperial";
+constexpr char DEFAULT_OWM_LANGUAGE[] = "en";
+constexpr uint32_t DEFAULT_WEATHER_UPDATE_INTERVAL = 12UL * 60UL * 60UL * 1000UL; // 12 hours
+constexpr uint32_t DEFAULT_INDOOR_UPDATE_INTERVAL = 10UL * 60UL * 1000UL; // 10 minutes
+
+// Runtime-configurable settings (loaded from SD if present)
+String CFG_WIFI_SSID = DEFAULT_WIFI_SSID;
+String CFG_WIFI_PASSWORD = DEFAULT_WIFI_PASSWORD;
+String CFG_OWM_API_KEY = DEFAULT_OWM_API_KEY;
+float CFG_OWM_LATITUDE = DEFAULT_OWM_LATITUDE;
+float CFG_OWM_LONGITUDE = DEFAULT_OWM_LONGITUDE;
+String CFG_OWM_UNITS = DEFAULT_OWM_UNITS;
+String CFG_OWM_LANGUAGE = DEFAULT_OWM_LANGUAGE;
+uint32_t CFG_WEATHER_UPDATE_INTERVAL = DEFAULT_WEATHER_UPDATE_INTERVAL;
+uint32_t CFG_INDOOR_UPDATE_INTERVAL = DEFAULT_INDOOR_UPDATE_INTERVAL;
 constexpr uint16_t CANVAS_WIDTH = 960;
 constexpr uint16_t CANVAS_HEIGHT = 540;
 constexpr uint8_t DISPLAY_ROTATION = 0;
@@ -43,6 +53,8 @@ struct DailyForecast
     float minTemperature{NAN};
     float maxTemperature{NAN};
     String summary;
+    String iconCode;
+    int iconId{0};
 };
 
 struct WeatherSnapshot
@@ -51,6 +63,8 @@ struct WeatherSnapshot
     String outdoorDescription;
     DailyForecast days[3];
     time_t updatedAt{};
+    String currentIconCode;
+    int currentIconId{0};
 };
 
 struct DayAggregate
@@ -58,6 +72,7 @@ struct DayAggregate
     float minTemperature{std::numeric_limits<float>::infinity()};
     float maxTemperature{-std::numeric_limits<float>::infinity()};
     String description;
+    String iconCode;
     int iconId{0};
     time_t localTimestamp{};
     int yyyymmdd{0};
@@ -67,6 +82,7 @@ struct DayAggregate
 M5EPD_Canvas canvas(&M5.EPD);
 bool canvasReady = false;
 bool fontReady = false;
+bool sdReady = false;
 WeatherSnapshot latestWeather;
 uint32_t lastWeatherUpdate = 0;
 uint32_t lastIndoorUpdate = 0;
@@ -80,6 +96,204 @@ bool pendingFullRefresh = false;
 // Forward declare renderDisplay so renderUi can call it before definition
 void renderDisplay(float indoorTemp, float indoorHumidity, bool indoorValid);
 
+// Ensure SD is initialised before asset loads
+bool ensureSdReady()
+{
+    if (sdReady)
+    {
+        return true;
+    }
+    if (SD.begin())
+    {
+        sdReady = true;
+        return true;
+    }
+    return false;
+}
+
+String iconPathForOwmId(int id)
+{
+    if (id >= 200 && id < 300) return String("/icons/thunder.png");
+    if (id >= 300 && id < 400) return String("/icons/drizzle.png");
+    if (id >= 500 && id < 600) return String("/icons/rain.png");
+    if (id >= 600 && id < 700) return String("/icons/snow.png");
+    if (id >= 700 && id < 800) return String("/icons/fog.png");
+    if (id == 800) return String("/icons/clear.png");
+    if (id == 801) return String("/icons/partly_cloudy.png");
+    if (id >= 802 && id <= 804) return String("/icons/clouds.png");
+    return String("/icons/na.png");
+}
+
+// -------- Configuration loading (from SD /config/weather.json) --------
+constexpr char CONFIG_PATH[] = "/config/weather.json";
+
+void applyConfigDefaults()
+{
+    CFG_WIFI_SSID = DEFAULT_WIFI_SSID;
+    CFG_WIFI_PASSWORD = DEFAULT_WIFI_PASSWORD;
+    CFG_OWM_API_KEY = DEFAULT_OWM_API_KEY;
+    CFG_OWM_LATITUDE = DEFAULT_OWM_LATITUDE;
+    CFG_OWM_LONGITUDE = DEFAULT_OWM_LONGITUDE;
+    CFG_OWM_UNITS = DEFAULT_OWM_UNITS;
+    CFG_OWM_LANGUAGE = DEFAULT_OWM_LANGUAGE;
+    CFG_WEATHER_UPDATE_INTERVAL = DEFAULT_WEATHER_UPDATE_INTERVAL;
+    CFG_INDOOR_UPDATE_INTERVAL = DEFAULT_INDOOR_UPDATE_INTERVAL;
+}
+
+bool loadConfigFromSD()
+{
+    applyConfigDefaults();
+    if (!ensureSdReady())
+    {
+        Serial.println("[Config] SD not ready; using defaults.");
+        return false;
+    }
+    if (!SD.exists(CONFIG_PATH))
+    {
+        Serial.println("[Config] No /config/weather.json; using defaults.");
+        return false;
+    }
+    File f = SD.open(CONFIG_PATH, FILE_READ);
+    if (!f)
+    {
+        Serial.println("[Config] Failed to open config; using defaults.");
+        return false;
+    }
+    DynamicJsonDocument doc(4096);
+    DeserializationError err = deserializeJson(doc, f);
+    f.close();
+    if (err)
+    {
+        Serial.printf("[Config] JSON parse error: %s; using defaults.\n", err.c_str());
+        return false;
+    }
+    // Map fields with fallbacks
+    JsonObject wifi = doc["wifi"].as<JsonObject>();
+    if (!wifi.isNull())
+    {
+        if (wifi["ssid"]) CFG_WIFI_SSID = String(wifi["ssid"].as<const char*>());
+        if (wifi["password"]) CFG_WIFI_PASSWORD = String(wifi["password"].as<const char*>());
+    }
+    JsonObject owm = doc["openweathermap"].as<JsonObject>();
+    if (!owm.isNull())
+    {
+        if (owm["apiKey"]) CFG_OWM_API_KEY = String(owm["apiKey"].as<const char*>());
+        if (owm["lat"]) CFG_OWM_LATITUDE = owm["lat"].as<float>();
+        if (owm["lon"]) CFG_OWM_LONGITUDE = owm["lon"].as<float>();
+        if (owm["units"]) CFG_OWM_UNITS = String(owm["units"].as<const char*>());
+        if (owm["lang"]) CFG_OWM_LANGUAGE = String(owm["lang"].as<const char*>());
+    }
+    JsonObject upd = doc["update"].as<JsonObject>();
+    if (!upd.isNull())
+    {
+        if (upd["weatherHours"]) CFG_WEATHER_UPDATE_INTERVAL = (uint32_t)(upd["weatherHours"].as<uint32_t>() * 60UL * 60UL * 1000UL);
+        if (upd["indoorMinutes"]) CFG_INDOOR_UPDATE_INTERVAL = (uint32_t)(upd["indoorMinutes"].as<uint32_t>() * 60UL * 1000UL);
+    }
+    Serial.println("[Config] Loaded configuration from SD.");
+    return true;
+}
+
+bool drawWeatherIcon(int id, int x, int y, int maxW, int maxH)
+{
+    if (!ensureSdReady())
+    {
+        return false;
+    }
+    String path = iconPathForOwmId(id);
+    if (!SD.exists(path))
+    {
+        Serial.printf("[Icon] Missing asset: %s\n", path.c_str());
+        return false;
+    }
+    // Try PNG first
+    if (path.endsWith(".png"))
+    {
+        return canvas.drawPngFile(SD, path.c_str(), x, y, maxW, maxH, 0, 0, 1.0, 127);
+    }
+    // Fallback BMP/JPG
+    if (path.endsWith(".bmp"))
+    {
+        return canvas.drawBmpFile(SD, path.c_str(), x, y);
+    }
+    return canvas.drawJpgFile(SD, path.c_str(), x, y, maxW, maxH);
+}
+
+String owmIconPath(const String &code)
+{
+    return String("/icons/") + code + ".png";
+}
+
+String owmIconUrl(const String &code)
+{
+    return String("https://openweathermap.org/img/wn/") + code + "@2x.png";
+}
+
+bool ensureIconCached(const String &code)
+{
+    if (code.length() == 0)
+    {
+        return false;
+    }
+    if (!ensureSdReady())
+    {
+        return false;
+    }
+    SD.mkdir("/icons");
+    const String path = owmIconPath(code);
+    if (SD.exists(path))
+    {
+        return true;
+    }
+    Serial.printf("[Icon] Downloading %s -> %s\n", code.c_str(), path.c_str());
+
+    WiFiClientSecure client;
+    client.setInsecure();
+    HTTPClient http;
+    const String url = owmIconUrl(code);
+    if (!http.begin(client, url))
+    {
+        Serial.println("[Icon] HTTP begin failed");
+        return false;
+    }
+    const int codeHttp = http.GET();
+    if (codeHttp != HTTP_CODE_OK)
+    {
+        Serial.printf("[Icon] HTTP %d for %s\n", codeHttp, url.c_str());
+        http.end();
+        return false;
+    }
+    File f = SD.open(path, FILE_WRITE);
+    if (!f)
+    {
+        Serial.println("[Icon] SD open failed");
+        http.end();
+        return false;
+    }
+    const size_t written = http.writeToStream(&f);
+    f.close();
+    http.end();
+    Serial.printf("[Icon] Saved %u bytes to %s\n", (unsigned)written, path.c_str());
+    return written > 0;
+}
+
+bool drawOwmIcon(const String &code, int x, int y, int maxW, int maxH)
+{
+    if (code.length() == 0)
+    {
+        return false;
+    }
+    if (!ensureSdReady())
+    {
+        return false;
+    }
+    const String path = owmIconPath(code);
+    if (!SD.exists(path))
+    {
+        return false;
+    }
+    return canvas.drawPngFile(SD, path.c_str(), x, y, maxW, maxH, 0, 0, 1.0, 127);
+}
+
 bool connectToWifi()
 {
     if (WiFi.status() == WL_CONNECTED)
@@ -91,7 +305,7 @@ bool connectToWifi()
     Serial.println("[WiFi] Connecting to configured network...");
     WiFi.mode(WIFI_STA);
     WiFi.setSleep(false);
-    WiFi.begin(WIFI_SSID, WIFI_PASSWORD);
+    WiFi.begin(CFG_WIFI_SSID.c_str(), CFG_WIFI_PASSWORD.c_str());
 
     const uint32_t start = millis();
     while (WiFi.status() != WL_CONNECTED)
@@ -125,15 +339,15 @@ void powerDownWifi()
 String buildApiUrl()
 {
     String url = "https://api.openweathermap.org/data/2.5/onecall?lat=";
-    url += String(OPENWEATHERMAP_LATITUDE, 6);
+    url += String(CFG_OWM_LATITUDE, 6);
     url += "&lon=";
-    url += String(OPENWEATHERMAP_LONGITUDE, 6);
+    url += String(CFG_OWM_LONGITUDE, 6);
     url += "&exclude=minutely,hourly,alerts&units=";
-    url += OPENWEATHERMAP_UNITS;
+    url += CFG_OWM_UNITS;
     url += "&lang=";
-    url += OPENWEATHERMAP_LANGUAGE;
+    url += CFG_OWM_LANGUAGE;
     url += "&appid=";
-    url += OPENWEATHERMAP_API_KEY;
+    url += CFG_OWM_API_KEY;
     return url;
 }
 
@@ -492,6 +706,22 @@ void renderForecastDetail(int dayIndex, float indoorTemp, float indoorHumidity, 
     drawStringWithDegrees(hiStr, 180, yHigh);
     drawStringWithDegrees(loStr, 180, yLow);
 
+    // Weather icon on the right
+    const int iconBoxX = CANVAS_WIDTH - 200;
+    const int iconBoxY = 140;
+    const int iconBoxW = 150;
+    const int iconBoxH = 150;
+    if (forecast.iconCode.length() > 0)
+    {
+        if (!drawOwmIcon(forecast.iconCode, iconBoxX, iconBoxY, iconBoxW, iconBoxH))
+        {
+            if (forecast.iconId > 0)
+            {
+                drawWeatherIcon(forecast.iconId, iconBoxX, iconBoxY, iconBoxW, iconBoxH);
+            }
+        }
+    }
+
     // Summary, wrapped
     setTextSizeCompat(3);
     const String summary = forecast.summary.length() > 0 ? capitalizeWords(forecast.summary) : String("No summary available");
@@ -715,9 +945,9 @@ bool fetchWeather()
     HTTPClient http;
 
     const String currentUrl = String("https://api.openweathermap.org/data/2.5/weather?lat=") +
-                              String(OPENWEATHERMAP_LATITUDE, 6) + "&lon=" +
-                              String(OPENWEATHERMAP_LONGITUDE, 6) + "&units=" +
-                              OPENWEATHERMAP_UNITS + "&appid=" + OPENWEATHERMAP_API_KEY;
+                              String(CFG_OWM_LATITUDE, 6) + "&lon=" +
+                              String(CFG_OWM_LONGITUDE, 6) + "&units=" +
+                              CFG_OWM_UNITS + "&lang=" + CFG_OWM_LANGUAGE + "&appid=" + CFG_OWM_API_KEY;
 
     if (!http.begin(client, currentUrl))
     {
@@ -758,12 +988,14 @@ bool fetchWeather()
     const int timezoneOffsetSeconds = currentDoc["timezone"].as<int>();
     latestWeather.outdoorTemperature = currentDoc["main"]["temp"].as<float>();
     latestWeather.outdoorDescription = currentDoc["weather"][0]["description"].as<String>();
+    latestWeather.currentIconId = currentDoc["weather"][0]["id"].as<int>();
+    latestWeather.currentIconCode = currentDoc["weather"][0]["icon"].as<String>();
     latestWeather.updatedAt = currentDoc["dt"].as<long>() + timezoneOffsetSeconds;
 
     const String forecastUrl = String("https://api.openweathermap.org/data/2.5/forecast?lat=") +
-                               String(OPENWEATHERMAP_LATITUDE, 6) + "&lon=" +
-                               String(OPENWEATHERMAP_LONGITUDE, 6) + "&units=" +
-                               OPENWEATHERMAP_UNITS + "&appid=" + OPENWEATHERMAP_API_KEY;
+                               String(CFG_OWM_LATITUDE, 6) + "&lon=" +
+                               String(CFG_OWM_LONGITUDE, 6) + "&units=" +
+                               CFG_OWM_UNITS + "&lang=" + CFG_OWM_LANGUAGE + "&appid=" + CFG_OWM_API_KEY;
 
     if (!http.begin(client, forecastUrl))
     {
@@ -863,6 +1095,7 @@ bool fetchWeather()
 
         const float temp = entry["main"]["temp"].as<float>();
         const int iconId = entry["weather"][0]["id"].as<int>();
+        const char *iconCodeC = entry["weather"][0]["icon"].as<const char *>();
         const char *desc = entry["weather"][0]["description"].as<const char *>();
 
         if (!std::isnan(temp))
@@ -884,6 +1117,10 @@ bool fetchWeather()
         if (aggregates[slot].iconId == 0 && iconId != 0)
         {
             aggregates[slot].iconId = iconId;
+        }
+        if (aggregates[slot].iconCode.length() == 0 && iconCodeC != nullptr)
+        {
+            aggregates[slot].iconCode = String(iconCodeC);
         }
     }
 
@@ -910,6 +1147,15 @@ bool fetchWeather()
         }
         forecast.summary = aggregates[i].description;
         forecast.timestamp = aggregates[i].localTimestamp;
+        forecast.iconId = aggregates[i].iconId;
+        forecast.iconCode = aggregates[i].iconCode;
+    }
+
+    // Cache OWM icons for current and upcoming days while Wi‑Fi is up
+    ensureIconCached(latestWeather.currentIconCode);
+    for (int i = 0; i < 3; ++i)
+    {
+        ensureIconCached(latestWeather.days[i].iconCode);
     }
 
     Serial.println("[Weather] Weather data parsed successfully.");
@@ -1002,6 +1248,9 @@ void setup()
     // Attempt to load a smoother TTF/OTF font from SD card.
     tryLoadSmoothFont();
 
+    // Load runtime configuration from SD (overrides defaults if present)
+    loadConfigFromSD();
+
     updateWeatherAndDisplay();
 }
 
@@ -1009,11 +1258,11 @@ void loop()
 {
     const uint32_t now = millis();
 
-    if ((now - lastWeatherUpdate) > WEATHER_UPDATE_INTERVAL)
+    if ((now - lastWeatherUpdate) > CFG_WEATHER_UPDATE_INTERVAL)
     {
         updateWeatherAndDisplay();
     }
-    else if ((now - lastIndoorUpdate) > INDOOR_UPDATE_INTERVAL)
+    else if ((now - lastIndoorUpdate) > CFG_INDOOR_UPDATE_INTERVAL)
     {
         updateIndoorAndDisplay();
     }
@@ -1080,11 +1329,12 @@ void tryLoadSmoothFont()
     }
 
     // Initialize SD and try to load a TTF/OTF font if present.
-    if (!SD.begin())
+    if (!sdReady && !SD.begin())
     {
         Serial.println("[Font] SD card not available; using default bitmap font.");
         return;
     }
+    sdReady = true;
 
     Serial.printf("[Font] Looking for font: %s\n", FONT_PATH_REGULAR);
     if (!SD.exists(FONT_PATH_REGULAR))
