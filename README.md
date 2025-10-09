@@ -10,9 +10,15 @@ An M5Paper landscape dashboard that shows indoor temperature and humidity alongs
 - Three-day forecast summary cards using OpenWeatherMap's One Call API.
 - Battery gauge indicating the current charge level.
 - Power-friendly refresh cadence: twice-daily forecast (Wi‑Fi) and 10‑minute indoor-only updates.
+- Tap navigation: cycle views Main → Day 1 → Day 2 → Day 3 → Main with a detailed daily page (high/low and summary).
 
-## Work in progress
-   - Looking to have the 3-day forecast change when tapping on the screen.
+## Touch Navigation
+
+- Tap anywhere on the screen to cycle views:
+  - Main dashboard → Day 1 detail → Day 2 detail → Day 3 detail → back to Main.
+- Detail pages show the selected day’s high/low and a wrapped summary, plus indoor temp/RH in the top‑right.
+- Debounce is ~400 ms to avoid double taps. You can change this in `src/m5paperWeather.cpp` inside the `loop()` logic.
+- To reduce ghosting when switching views, the app performs a one‑time stronger refresh. You can adjust the mode in `pushCanvasSmart()`.
 
 
 ## Getting started
@@ -63,13 +69,19 @@ Sizes and tuning
 - The app precreates render sizes for the font and maps legacy sizes to pixels:
   - `2 → 26 px`, `3 → 36 px`, `4 → 48 px`, `8 → 84 px`
 - To slightly change the large current‑temperature font, edit the mapping for `8` in `mapLegacySizeToPx(...)` inside `src/m5paperWeather.cpp`.
-- Alternatively, change the call site used for the big temperature: `src/m5paperWeather.cpp:516` (`setTextSizeCompat(8)`).
+- Alternatively, change the call site used for the big temperature within `renderDisplay(...)` where `setTextSizeCompat(8)` is called.
 
 Troubleshooting
 - If you see messages like `Freetype: Size X not found` or `Render is not available` in the serial log:
   - Ensure the font file exists on the SD card at the configured path.
   - Power cycle after changing fonts.
   - If you changed text sizes, also update the size mapping and ensure those sizes are precreated in `tryLoadSmoothFont()`.
+
+## Customisation (advanced)
+
+- Touch behavior: Adjust tap debounce and cycling in `loop()` (`uiMode`, `lastTouchTime`).
+- View refresh: Change the one‑shot refresh mode in `pushCanvasSmart()` (e.g., `UPDATE_MODE_GL16`, `GLD16`, `DU`).
+- Detail layout: Tweak fonts/positions in `renderForecastDetail(...)`.
 
 ## API usage
 

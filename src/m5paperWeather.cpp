@@ -18,9 +18,9 @@ void tryLoadSmoothFont();
 
 namespace
 {
-constexpr char WIFI_SSID[] = "SSID";
-constexpr char WIFI_PASSWORD[] = "WIFI_PASSWORD";
-constexpr char OPENWEATHERMAP_API_KEY[] = "API_KEY"; // TODO: replace with your OpenWeatherMap API key
+constexpr char WIFI_SSID[] = "SSID_HERE";
+constexpr char WIFI_PASSWORD[] = "SSID_PASSWORD_HERE";
+constexpr char OPENWEATHERMAP_API_KEY[] = "API_CODE"; // TODO: replace with your OpenWeatherMap API key
 constexpr float OPENWEATHERMAP_LATITUDE = 0.0F; // TODO: replace with your latitude
 constexpr float OPENWEATHERMAP_LONGITUDE = 0.0F; // TODO: replace with your longitude
 constexpr char OPENWEATHERMAP_UNITS[] = "imperial";
@@ -71,6 +71,14 @@ WeatherSnapshot latestWeather;
 uint32_t lastWeatherUpdate = 0;
 uint32_t lastIndoorUpdate = 0;
 String lastErrorMessage;
+// UI mode: 0 = main dashboard, 1..3 = detailed forecast for day index-1
+uint8_t uiMode = 0;
+bool wasTouching = false;
+uint32_t lastTouchTime = 0;
+bool pendingFullRefresh = false;
+
+// Forward declare renderDisplay so renderUi can call it before definition
+void renderDisplay(float indoorTemp, float indoorHumidity, bool indoorValid);
 
 bool connectToWifi()
 {
@@ -413,6 +421,150 @@ void drawStringWithDegrees(const String &text, int16_t startX, int16_t startY)
     canvas.drawString(text, startX, startY);
 }
 
+void pushCanvasSmart()
+{
+    m5epd_update_mode_t mode = pendingFullRefresh ? UPDATE_MODE_GL16 : UPDATE_MODE_GC16;
+    canvas.pushCanvas(0, 0, mode);
+    pendingFullRefresh = false;
+}
+
+void renderForecastDetail(int dayIndex, float indoorTemp, float indoorHumidity, bool indoorValid)
+{
+    if (!canvasReady)
+    {
+        Serial.println("[Display] Skipping detail render because canvas is not ready.");
+        return;
+    }
+
+    canvas.fillCanvas(COLOR_WHITE);
+    canvas.setTextColor(COLOR_BLACK);
+    canvas.setTextDatum(TL_DATUM);
+
+    // Safety: bound index
+    if (dayIndex < 0) dayIndex = 0;
+    if (dayIndex > 2) dayIndex = 2;
+
+    const DailyForecast &forecast = latestWeather.days[dayIndex];
+
+    // Header
+    setTextSizeCompat(4);
+    const String title = String("Forecast: ") + formatDayOfWeek(forecast.timestamp);
+    canvas.drawString(title, 30, 30);
+
+    // Timestamp of last weather update
+    setTextSizeCompat(2);
+    const String updatedText = latestWeather.updatedAt != 0 ? formatTimestamp(latestWeather.updatedAt) : String("Pending");
+    canvas.drawString(String("Updated: ") + updatedText, 30, 80);
+
+    // Indoor quick status on the right
+    setTextSizeCompat(2);
+    const int indoorTextY = 80;
+    if (indoorValid)
+    {
+        const String indoorLine = "Indoor: " + String(indoorTemp, 1) + " F  " + String(indoorHumidity, 1) + "% RH";
+        const int indoorWidth = canvas.textWidth(indoorLine);
+        const int indoorDrawX = CANVAS_WIDTH - 30 - indoorWidth;
+        drawStringWithDegrees(indoorLine, indoorDrawX, indoorTextY);
+    }
+    else
+    {
+        const String indoorMessage = "Indoor sensor not available";
+        const int indoorWidth = canvas.textWidth(indoorMessage);
+        const int indoorDrawX = CANVAS_WIDTH - 30 - indoorWidth;
+        canvas.drawString(indoorMessage, indoorDrawX, indoorTextY);
+    }
+
+    // Temperatures — use large value font and compute dynamic spacing to avoid overlap
+    setTextSizeCompat(7); // slightly smaller than main big temp
+    const int valueHeight = canvas.fontHeight();
+    const int yHigh = 160;
+    const int yLow = yHigh + valueHeight + 30; // spacing below high value
+    String hiStr = std::isnan(forecast.maxTemperature) ? String("-- F") : String(forecast.maxTemperature, 1) + " F";
+    String loStr = std::isnan(forecast.minTemperature) ? String("-- F") : String(forecast.minTemperature, 1) + " F";
+
+    // Labels in smaller font
+    setTextSizeCompat(3);
+    canvas.drawString("High:", 30, yHigh);
+    canvas.drawString("Low:", 30, yLow);
+
+    // Values in large font
+    setTextSizeCompat(7);
+    drawStringWithDegrees(hiStr, 180, yHigh);
+    drawStringWithDegrees(loStr, 180, yLow);
+
+    // Summary, wrapped
+    setTextSizeCompat(3);
+    const String summary = forecast.summary.length() > 0 ? capitalizeWords(forecast.summary) : String("No summary available");
+    const int summaryX = 30;
+    int summaryY = 300;
+    const int maxSummaryWidth = CANVAS_WIDTH - 60;
+    String line;
+    int index = 0;
+    while (index < summary.length())
+    {
+        while (index < summary.length() && summary[index] == ' ')
+        {
+            ++index;
+        }
+        if (index >= summary.length())
+        {
+            break;
+        }
+        int nextSpace = summary.indexOf(' ', index);
+        if (nextSpace == -1)
+        {
+            nextSpace = summary.length();
+        }
+        const String word = summary.substring(index, nextSpace);
+        const String candidate = line.length() > 0 ? line + ' ' + word : word;
+        if (line.length() == 0 || canvas.textWidth(candidate) <= maxSummaryWidth)
+        {
+            line = candidate;
+        }
+        else
+        {
+            canvas.drawString(line, summaryX, summaryY);
+            line = word;
+            summaryY += 28;
+        }
+        index = nextSpace + 1;
+    }
+    if (line.length() > 0)
+    {
+        canvas.drawString(line, summaryX, summaryY);
+    }
+
+    // Footer hint
+    setTextSizeCompat(2);
+    const String hint = "Tap to cycle days — tap again to return";
+    const int hintWidth = canvas.textWidth(hint);
+    canvas.setTextDatum(BC_DATUM);
+    canvas.drawString(hint, CANVAS_WIDTH / 2, CANVAS_HEIGHT - 16);
+    canvas.setTextDatum(TL_DATUM);
+
+    pushCanvasSmart();
+}
+
+void renderUi(float indoorTemp, float indoorHumidity, bool indoorValid)
+{
+    if (uiMode == 0)
+    {
+        renderDisplay(indoorTemp, indoorHumidity, indoorValid);
+    }
+    else
+    {
+        const int dayIndex = static_cast<int>(uiMode) - 1;
+        renderForecastDetail(dayIndex, indoorTemp, indoorHumidity, indoorValid);
+    }
+}
+
+void refreshDisplayForUiChange()
+{
+    float indoorTemp = NAN;
+    float indoorHumidity = NAN;
+    const bool indoorValid = readIndoorClimate(indoorTemp, indoorHumidity);
+    renderUi(indoorTemp, indoorHumidity, indoorValid);
+}
 void drawForecastCards()
 {
     constexpr int baseY = 360;
@@ -548,8 +700,8 @@ void renderDisplay(float indoorTemp, float indoorHumidity, bool indoorValid)
     canvas.drawString("3-Day Forecast", 30, 330);
 
     drawForecastCards();
-
-    canvas.pushCanvas(0, 0, UPDATE_MODE_GC16);
+    
+    pushCanvasSmart();
 }
 
 bool fetchWeather()
@@ -792,7 +944,7 @@ void updateWeatherAndDisplay()
     const bool indoorValid = readIndoorClimate(indoorTemp, indoorHumidity);
 
     Serial.println("[Update] Rendering display.");
-    renderDisplay(indoorTemp, indoorHumidity, indoorValid);
+    renderUi(indoorTemp, indoorHumidity, indoorValid);
     lastWeatherUpdate = millis();
     // Keep indoor timer aligned so we don't immediately trigger an indoor-only refresh.
     lastIndoorUpdate = lastWeatherUpdate;
@@ -810,7 +962,7 @@ void updateIndoorAndDisplay()
     const bool indoorValid = readIndoorClimate(indoorTemp, indoorHumidity);
 
     Serial.println("[Indoor] Rendering display with latest weather snapshot.");
-    renderDisplay(indoorTemp, indoorHumidity, indoorValid);
+    renderUi(indoorTemp, indoorHumidity, indoorValid);
     lastIndoorUpdate = millis();
     Serial.println("[Indoor] Indoor-only update complete.");
 }
@@ -866,8 +1018,34 @@ void loop()
         updateIndoorAndDisplay();
     }
 
+    // Touch handling: use GT911 API (available->update->getFingerNum/readFinger(0))
     M5.update();
-    delay(1000);
+    bool touching = false;
+    tp_finger_t finger = {0, 0, 0, 0};
+    if (M5.TP.available())
+    {
+        M5.TP.update();
+        const uint8_t n = M5.TP.getFingerNum();
+        touching = (n > 0);
+        if (n > 0)
+        {
+            finger = M5.TP.readFinger(0);
+        }
+    }
+
+    if (touching && !wasTouching && (now - lastTouchTime) > 400UL)
+    {
+        lastTouchTime = now;
+        // Cycle UI mode: 0 -> 1 -> 2 -> 3 -> 0
+        uiMode = (uiMode + 1) % 4;
+        Serial.printf("[Touch] Tap @(%d,%d). Mode -> %u\n", (int)finger.x, (int)finger.y, uiMode);
+        // Force a full refresh on the next render to avoid any ghosting between screen modes
+        pendingFullRefresh = true;
+        refreshDisplayForUiChange();
+    }
+
+    wasTouching = touching;
+    delay(50);
 }
 int mapLegacySizeToPx(int legacy)
 {
